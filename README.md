@@ -47,4 +47,4 @@ throw off the extraction, unlike a naive first-`{` / last-`}` slice.
 
 ## License
 
-MIT. See [LICENSE](./LICENSE).
+Apache-2.0. See [LICENSE](./LICENSE).
