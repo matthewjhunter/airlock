@@ -1,0 +1,14 @@
+name: CI
+
+# Thin caller: Go CI (test/vet/fmt/lint/govulncheck) lives in
+# infodancer/workflows so the definition + action pins stay identical across
+# repos. See that repo's README.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    uses: infodancer/workflows/.github/workflows/go-ci.yml@v0.2.7
