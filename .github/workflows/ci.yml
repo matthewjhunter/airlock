@@ -17,3 +17,7 @@ jobs:
     # ubuntu-latest also runs on outside contributors' pull requests.
     with:
       runner: '["ubuntu-latest"]'
+      # Build/test/vet/lint run on the module's low go.mod floor (1.22). But
+      # govulncheck@latest itself now requires Go >= 1.25 to build, so give the
+      # scanner job a newer toolchain without raising the library's floor.
+      govulncheck_go_version: "1.26.5"
