@@ -4,15 +4,29 @@
 package screen
 
 import (
-	"fmt"
 	"strings"
 	"unicode"
 
 	"github.com/matthewjhunter/airlock/normalize"
 )
 
-// Span is where a verdict's evidence actually occurs in the content it was screened
-// from. Byte offsets into the string passed to [Verdict.Locate].
+// Span is where a verdict's evidence occurs in the content it was screened from.
+//
+// # Ephemeral. Do not persist these offsets.
+//
+// They are byte offsets into the exact string handed to [Verdict.Locate], and that
+// string is a derived, short-lived artifact: content gets sanitized, truncated to a
+// prompt limit, and neutralized (which changes its length) before a model ever sees it,
+// and the article behind it gets re-fetched, re-extracted, and edited upstream.
+//
+// Stored offsets rot. The failure is silent and therefore nasty: they keep RESOLVING,
+// against text that has since shifted underneath them, and hand back a confident,
+// plausible, wrong span. A security record that misattributes quietly is worse than one
+// that admits it does not know.
+//
+// So call Locate when you need the span -- at screen time to verify the citation, at
+// display time to highlight it -- and throw the result away. The durable record is
+// [Finding], which holds no offsets and no payload.
 type Span struct {
 	Start int
 	End   int
@@ -47,16 +61,21 @@ func (s Span) Text(content string) string {
 //
 // The content does. If the quoted span does not occur in the text, the model did not
 // find it there; it made it up. That is not a weak verdict, it is a void one, and
-// [Verdict.VerifyEvidence] treats it as such. This upgrades the evidence requirement
-// from "did you cite something" to "does your citation exist", which is the check that
-// actually catches a model rationalizing a hunch.
+// [Verdict.Finding] refuses to produce a record from it. This upgrades the evidence
+// requirement from "did you cite something" to "does your citation exist", which is the
+// check that actually catches a model rationalizing a hunch.
 //
-// # And it answers where to put the quote
+// # Call it, use it, throw it away
 //
-// Once the span is located, the quote is redundant: the caller can recover it from the
-// source with [Span.Text] whenever it is needed. So store the offsets, not the text.
-// Two ints, bounded and harmless, instead of an attacker-authored string of
-// attacker-chosen length in a log line, an error message, and a database column.
+// The span is ephemeral -- see [Span]. Do not store the offsets, and do not store the
+// quote either: attacker-authored bytes belong in the fenced prompt and in the article
+// the caller already keeps, not in a log line, an error string, or a new column. The
+// durable record is [Finding], which carries neither.
+//
+// Locate is for the two moments the span is actually needed: verifying the citation at
+// screen time, and highlighting it at display time, against whatever content the caller
+// holds right now. If the article has changed since and the span no longer matches, that
+// is a true answer and worth surfacing.
 //
 // # Matching
 //
@@ -105,32 +124,6 @@ func (v Verdict) Locate(content string) (Span, bool) {
 	start := len(string(origRunes[:startRune]))
 	end := len(string(origRunes[:endRune]))
 	return Span{Start: start, End: end, Exact: false}, true
-}
-
-// VerifyEvidence checks a verdict against the content it was produced from.
-//
-// A threat whose quoted evidence does not occur in the content is a fabrication: the
-// model reported an instruction it cannot show you. Reject it. This is the strongest
-// form of the anti-false-positive check in this package, and it is available to any
-// caller that still holds the original text -- which, in practice, is every caller,
-// since it had to have the text to screen it.
-//
-// A clean verdict (threat 0) needs no evidence and verifies trivially.
-func (v Verdict) VerifyEvidence(content string) (Span, error) {
-	if v.Threat <= 0 {
-		return Span{}, nil
-	}
-	if strings.TrimSpace(v.Evidence) == "" {
-		return Span{}, fmt.Errorf("screen: verdict reports threat %d but quotes no evidence", v.Threat)
-	}
-
-	span, ok := v.Locate(content)
-	if !ok {
-		return Span{}, fmt.Errorf("screen: verdict reports threat %d citing %q, but that text does not "+
-			"occur in the content -- the model fabricated its evidence, so the finding is void (reason: %q)",
-			v.Threat, truncate(v.Evidence, 80), truncate(v.Reason, 80))
-	}
-	return span, nil
 }
 
 // foldView returns a folded view of s, plus a mapping from each rune of the view back

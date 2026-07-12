@@ -237,10 +237,12 @@ func (v Verdict) Validate() (Verdict, error) {
 	out.Reason = truncate(out.Reason, ReasonMaxRunes)
 
 	if out.Threat > 0 && strings.TrimSpace(out.Evidence) == "" {
-		return out, fmt.Errorf("screen: verdict reports threat %d but quotes no evidence; "+
-			"the prompt requires a verbatim span addressed to an AI, so this is a content "+
-			"judgment rather than an injection finding (reason: %q)",
-			out.Threat, truncate(out.Reason, 120))
+		// Metadata only. The reason field is model prose about attacker text and can
+		// quote it; an error string is not a fenced channel. See [Finding].
+		return out, fmt.Errorf("screen: verdict reports threat %d (category=%s) but quotes no "+
+			"evidence; the prompt requires a verbatim span addressed to an AI, so this is a "+
+			"content judgment rather than an injection finding",
+			out.Threat, canonicalCategory(out.Category, out.Threat))
 	}
 	return out, nil
 }
