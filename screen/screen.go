@@ -130,7 +130,35 @@ func neutralizeAll(in []string) []string {
 	return out
 }
 
+// Bounds on the free-text fields a model returns. The prompt asks for short values;
+// these enforce it, because a prompt is a request and a model is not obliged to
+// honor it -- and because the text in question is derived from attacker-authored
+// content, so its length is attacker-chosen.
+//
+// EvidenceMaxRunes is deliberately tight. The evidence field exists to prove the
+// model found a specific instruction rather than a general unease, and the shortest
+// span that does that is the most convincing one. It also has to fit somewhere real:
+// a log line, an error message, a database column.
+const (
+	EvidenceMaxRunes = 120
+	ReasonMaxRunes   = 300
+)
+
 // Verdict is the model's answer, as the prompt asks for it.
+//
+// # Evidence and Reason are attacker-derived. Treat them as untrusted.
+//
+// Evidence is a verbatim quote of hostile content, and Reason is a sentence the model
+// wrote about it. Both are downstream of text an attacker wrote, and both have just
+// been carried back out through the fence into your data model. Consequences:
+//
+//   - Evidence can itself contain a fence delimiter -- the model is quoting attacker
+//     text, and that text may well have contained one. [ParseVerdict] runs both
+//     fields through [wrap.Neutralize] for exactly this reason, so a quoted tag
+//     cannot ride back into a later prompt.
+//   - Never interpolate either field into another prompt unfenced. If you want the
+//     model to explain a verdict, fence the evidence like any other untrusted span.
+//   - Escape both before rendering them in a UI, and expect them in your logs.
 type Verdict struct {
 	// Threat runs 0 to 10. 0 means no instruction addressed to an AI was found,
 	// and is the expected answer for almost all text.
@@ -154,14 +182,36 @@ type Verdict struct {
 	Reason string `json:"reason"`
 }
 
-// ParseVerdict recovers a Verdict from a model's reply, tolerating the usual
-// wrappers models add (markdown fences, leading commentary) via [unwrap].
+// ParseVerdict recovers a Verdict from a model's reply, tolerating the usual wrappers
+// models add (markdown fences, leading commentary) via [unwrap].
+//
+// It neutralizes and bounds Evidence and Reason as it parses. Both are attacker-derived
+// -- Evidence is a verbatim quote of hostile text -- so this is the boundary at which
+// they stop being a prompt response and become data your program handles. A quoted
+// fence delimiter is stripped here, and an over-long field is truncated here, rather
+// than in whatever log line or database column happens to receive it later.
 func ParseVerdict(reply string) (Verdict, error) {
 	v, err := unwrap.Into[Verdict](reply)
 	if err != nil {
 		return Verdict{}, fmt.Errorf("screen: parse verdict: %w", err)
 	}
+
+	v.Evidence = truncate(wrap.Neutralize(v.Evidence), EvidenceMaxRunes)
+	v.Reason = truncate(wrap.Neutralize(v.Reason), ReasonMaxRunes)
+	v.Category = truncate(v.Category, 32)
+
 	return v, nil
+}
+
+// truncate cuts s to at most n runes, marking that it did so. Runes, not bytes: a
+// byte-wise cut would split a multi-byte character and produce invalid UTF-8, and the
+// text being cut here is frequently not ASCII.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return strings.TrimRight(string(r[:n]), " ") + "..."
 }
 
 // Validate reports whether the verdict is internally coherent, and clamps Threat
@@ -180,10 +230,17 @@ func (v Verdict) Validate() (Verdict, error) {
 		out.Threat = 10
 	}
 
+	// Belt and braces: ParseVerdict already bounds these, but a Verdict can also be
+	// constructed directly, and an unbounded attacker-derived string must not reach an
+	// error message or a log line.
+	out.Evidence = truncate(out.Evidence, EvidenceMaxRunes)
+	out.Reason = truncate(out.Reason, ReasonMaxRunes)
+
 	if out.Threat > 0 && strings.TrimSpace(out.Evidence) == "" {
 		return out, fmt.Errorf("screen: verdict reports threat %d but quotes no evidence; "+
 			"the prompt requires a verbatim span addressed to an AI, so this is a content "+
-			"judgment rather than an injection finding (reason: %q)", out.Threat, out.Reason)
+			"judgment rather than an injection finding (reason: %q)",
+			out.Threat, truncate(out.Reason, 120))
 	}
 	return out, nil
 }
