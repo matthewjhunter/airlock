@@ -180,17 +180,28 @@ on Go 1.22 + x/text v0.21.0 (verified).
 ## Target layout in airlock
 
 ```
-normalize/            # ported normalize.go, package renamed, pure funcs
-  normalize.go
-  normalize_test.go   # port pipelock's normalize_test.go too -- it's Apache and thorough
+normalize/
+  doc.go              # airlock: package doc
+  pipelock.go         # VENDORED Apache-2.0 (Waldrep) -- upstream primitives
+  pipelock_test.go    # VENDORED Apache-2.0 (Waldrep) -- upstream tests
+  normalize.go        # airlock: StripCombiningMarks (the NFC/Hangul fix)
+  normalize_test.go   # airlock: tests for the above
 detect/
-  detect.go           # advisory scanner: Detect(text) (Score, []Match), no mutation
-  patterns.go         # airlock's own pattern representation (NOT pipelock's YAML schema)
-  rules_seed.go       # vendored built-in corpus, converted from defaults.go at port time
+  doc is in detect.go # airlock: Detect, Match, Result -- advisory, mutates nothing
+  patterns.go         # airlock: Rule, Severity -- airlock's own representation
+  rules_pipelock.go   # VENDORED Apache-2.0 (Waldrep) -- the 28 regexes, DATA ONLY
+  rules_seed.go       # airlock: ID/category/severity + reasoning per rule
+  score.go            # airlock: Result.Score() corroboration aggregate
   detect_test.go
+  score_test.go
 docs/pipelock-port.md # this file
-NOTICE                # Apache attribution (new; see below)
+NOTICE                # Apache attribution
 ```
+
+**Licensing boundary is a file boundary.** Vendored Apache-2.0 code lives only in
+files named `pipelock*`. Everything else is airlock's own. This is deliberate: it
+means the answer to "is this file someone else's work?" is legible from the
+filename, and the NOTICE can enumerate the vendored set exactly.
 
 `normalize` should also be reachable from `wrap` -- neutralizing on normalized
 text closes the zero-width / homoglyph breakout of the fence delimiter. Wire that

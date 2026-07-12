@@ -11,13 +11,29 @@ Portions of this software were derived from pipelock.
   Commit:  41e5c57051866d43c5d87cb4e7d5a927cfe3f95f
   License: Apache-2.0 (SPDX-License-Identifier: Apache-2.0)
 
-  Derived file:
-    normalize/normalize.go       <- internal/normalize/normalize.go
-    normalize/normalize_test.go  <- internal/normalize/normalize_test.go
+  Apache-2.0 code from pipelock is confined to files named for their origin.
+  These files, and only these files, contain vendored upstream work:
 
-  Modifications: the package documentation was rewritten for airlock, and the
-  ForDLP pipeline (and its tests) were removed as outside airlock's scope. The
-  normalization primitives are otherwise unchanged from upstream.
+    normalize/pipelock.go        <- internal/normalize/normalize.go
+    normalize/pipelock_test.go   <- internal/normalize/normalize_test.go
+    detect/rules_pipelock.go     <- internal/config/defaults.go
+                                    internal/scanner/core.go (one pattern)
+
+  Every other file in this repository is airlock's own work. In particular
+  detect/rules_seed.go -- which assigns a severity and category to each vendored
+  pattern -- is airlock's editorial judgment, not upstream data: pipelock's
+  pattern struct carries no severity field at all.
+
+  Modifications, per Apache-2.0 section 4(b), are enumerated in each vendored
+  file's header. In summary:
+
+    normalize/pipelock.go       ForDLP removed (out of scope). StripCombiningMarks
+                                renamed and unexported; airlock's corrected version,
+                                which recomposes with NFC, lives in normalize.go.
+    normalize/pipelock_test.go  ForDLP tests removed. Benchmarks rewritten off
+                                testing.Loop to hold the go 1.22 language floor.
+    detect/rules_pipelock.go    Regexes extracted verbatim. Three credential-exfil
+                                patterns not taken (egress/DLP, out of scope).
 
 Nothing in this product is derived from pipelock's enterprise/ tree, which is
 licensed under the Elastic License 2.0 rather than Apache-2.0.
