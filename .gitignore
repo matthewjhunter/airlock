@@ -9,3 +9,6 @@ Thumbs.db
 
 # aider
 .aider*
+
+# Private security writeup -- report via pipelock advisory form, never commit
+docs/upstream-issues.md
