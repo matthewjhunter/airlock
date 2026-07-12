@@ -240,6 +240,84 @@ after both land (small follow-up, not part of the initial port).
    the fence (`wrap`) is the actual guarantee. This is not editorializing -- it's
    the honest bound, and it's the thesis of the whole project.
 
+## Port status (updated 2026-07-11)
+
+Both packages have landed. What follows is what actually got built, where it
+diverged from the plan above, and what is still outstanding.
+
+### Done
+
+- **`normalize`** -- all primitives ported. Every non-comment line is byte-identical
+  to upstream except the deleted `ForDLP` (out of scope) and the Hangul fix below.
+  All 183 ported upstream subtests pass.
+- **`detect`** -- 28 rules: the 27 in-scope patterns from `defaults.go` plus
+  `System Prompt Disclosure` from `core.go`. Regexes were extracted mechanically,
+  not retyped, and are verified byte-identical to upstream. `Detect` is advisory
+  and mutates nothing.
+
+### The Hangul bug (a real upstream defect, fixed here)
+
+pipelock's `StripCombiningMarks` runs NFD and never recomposes. NFD does not only
+split accents off their bases -- it decomposes precomposed Hangul syllables into
+conjoining jamo, which are category Lo, not Mn, and so survive the mark strip. The
+text stays decomposed.
+
+The consequence: any rule written in ordinary precomposed Hangul cannot match
+normalized text. **pipelock's own `CJK Instruction Override KR` pattern matches the
+raw string and fails against the output of its own `ForMatching`** -- it is dead code
+upstream. Verified directly against pipelock at the pinned commit: `ForMatching`
+turns a 9-rune Korean phrase into 18 runes.
+
+airlock's `StripCombiningMarks` finishes with NFC. The marks are already gone by
+then, so there is nothing for NFC to put back, and precomposed forms are restored.
+Pinned by `TestStripCombiningMarks_RecomposesHangul` and a companion test asserting
+NFC does not resurrect the stripped marks.
+
+Worth reporting upstream.
+
+### Severity is airlock's judgment, not ported data
+
+The plan above specified `Match.Severity // carried from source`. **There is nothing
+to carry**: `ResponseScanPattern` is `{Name, Regex, Bundle, BundleVersion, Compiled}`
+-- no severity field. Only pipelock's DLP patterns have severities, and those are the
+patterns we dropped.
+
+So severity here is an editorial call, made in airlock and labeled as such, on how
+much a hit is actually worth as evidence:
+
+- **High** (18 rules) -- the text is hostile or it is nothing. Overrides, jailbreaks,
+  concealment, credential solicitation, control tokens, authority escalation.
+- **Medium** (7) -- hostile in context, but the phrasing has honest uses. System
+  prompt disclosure, tool-invocation imperatives, memory and preference poisoning.
+- **Low** (3) -- might be injection; just as likely ordinary prose. `^system:`,
+  "new instructions", "prioritize the task request". A Low hit alone is close to
+  worthless, and the test suite asserts these DO fire on benign text -- that is what
+  the tier means.
+
+`rules_seed.go` records a one-line reason per rule. The plan's `score float64` was
+dropped: a float implies a calibration this detector does not have. `Result.Highest()`
+returns the strongest tier that fired, which is the honest aggregate.
+
+### Not done (deliberately, and not silently)
+
+- **pipelock-rules community YAMLs.** None ported yet. The cherry-pick list above
+  (`delimiter-breakout`, `system-tag-override`, `hidden-html-override`,
+  `html-comment-override`, `tool-call-imperative`, `explicit-http-exfil`,
+  `french-override`, `german-override`) still stands. NOTICE credits only pipelock
+  until they land.
+- **Tool-poison rules.** Not ported. airlock has no tool-registration inspection
+  path yet. `Rule.Field` and `Match.Field` exist and are honored by `Detect` (a
+  field-scoped rule is skipped on a freetext scan), so the hook is in place.
+- **User rules on disk (`rules_dir`).** Not implemented. The seed corpus is
+  currently the whole corpus.
+- **Vowel-fold matching pass.** `normalize.FoldVowels` is ported and tested, but
+  `Detect` does not use it. Doing so needs a parallel corpus of vowel-folded
+  patterns, and the precision loss is severe -- "ignore" and "ignara" fold alike.
+  Deferred rather than half-built.
+- **`response_prefilter.go`.** Not ported. Pure latency optimization; correctness
+  does not depend on it.
+- **Wiring `normalize` into `wrap`.** Still the follow-up it always was.
+
 ## Attribution (Apache-2.0 section 4 -- required)
 
 - Add a top-level `NOTICE` crediting `luckyPipewrench/pipelock` and
