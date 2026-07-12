@@ -662,3 +662,51 @@ func TestStripExoticWhitespace_MustRunBeforeNFKC(t *testing.T) {
 		t.Errorf("NFKC-then-strip = %q, want %q (splitter survives as ASCII space)", got, "AIRLOCK UNTRUSTED")
 	}
 }
+
+// TestStripCombiningMarks_RecomposesHangul pins a divergence from upstream pipelock,
+// which is a bug fix rather than a preference.
+//
+// NFD decomposes precomposed Hangul syllables into conjoining jamo. Jamo are
+// category Lo, not Mn, so stripping combining marks does not remove them, and
+// without a recomposition step the text stays decomposed: a 2-rune Korean word
+// comes back as 4 runes that render identically but do not compare equal.
+//
+// The consequence upstream is that every rule written in ordinary precomposed
+// Hangul -- which is how Korean is actually written -- can never match normalized
+// text. pipelock's own "CJK Instruction Override KR" pattern matches the raw string
+// and fails on the output of its own ForMatching. StripCombiningMarks now finishes
+// with NFC, which restores the precomposed form.
+func TestStripCombiningMarks_RecomposesHangul(t *testing.T) {
+	const kr = "이전 지시를 무시" // "ignore previous instructions"
+
+	if got := StripCombiningMarks(kr); got != kr {
+		t.Errorf("StripCombiningMarks(%q) = %q (%d runes, want %d) -- Hangul left decomposed",
+			kr, got, len([]rune(got)), len([]rune(kr)))
+	}
+	if got := ForMatching(kr); got != kr {
+		t.Errorf("ForMatching(%q) = %q -- Korean rules cannot match this", kr, got)
+	}
+}
+
+// TestStripCombiningMarks_RecompositionKeepsMarksOff guards the obvious risk in the
+// fix above: NFC must not resurrect the combining marks that were just stripped.
+func TestStripCombiningMarks_RecompositionKeepsMarksOff(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"combining acute is gone, not recomposed", "é", "e"},
+		{"precomposed accent is flattened", "é", "e"},
+		{"stacked marks all removed", "é̂̃", "e"},
+		{"Vietnamese decomposes and flattens", "ế", "e"},
+		{"injection phrase with marks", "i̇gńore", "ignore"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := StripCombiningMarks(tt.input); got != tt.want {
+				t.Errorf("StripCombiningMarks(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

@@ -481,16 +481,34 @@ func ConfusableToASCII(s string) string {
 }
 
 // StripCombiningMarks removes Unicode combining marks (category Mn) that survive
-// NFKC normalization. NFD decomposition reverses NFKC composition so combining
-// marks can be stripped. Applied after NFKC + confusable mapping.
+// NFKC normalization. NFD decomposition reverses NFKC composition so the marks are
+// exposed as separate runes and can be stripped. Applied after NFKC + confusable
+// mapping.
+//
+// The trailing NFC recomposition is a deliberate divergence from the upstream
+// pipelock implementation, which stops after the strip and returns decomposed text.
+// It is a bug fix, not a refinement.
+//
+// NFD does not only split accents off their base characters -- it also decomposes
+// precomposed Hangul syllables into conjoining jamo. Those jamo are category Lo,
+// not Mn, so the strip leaves them in place, and the text stays decomposed:
+// "이전" (2 runes) comes back as 4. Any pattern written in ordinary precomposed
+// Hangul -- which is how Korean is written, and how every Korean rule in the detect
+// corpus is written -- then cannot match, because it is being compared against jamo
+// that no longer compose. The rule silently never fires.
+//
+// Recomposing with NFC restores the precomposed forms and costs nothing elsewhere:
+// the marks are already gone by this point, so there is nothing for NFC to put back.
+// TestStripCombiningMarks_RecomposesHangul pins the behavior.
 func StripCombiningMarks(s string) string {
 	s = norm.NFD.String(s)
-	return strings.Map(func(r rune) rune {
+	stripped := strings.Map(func(r rune) rune {
 		if unicode.Is(unicode.Mn, r) {
 			return -1
 		}
 		return r
 	}, s)
+	return norm.NFC.String(stripped)
 }
 
 // StripControlChars removes ALL C0 (0x00-0x1F), C1 (0x80-0x9F), DEL (0x7F),
