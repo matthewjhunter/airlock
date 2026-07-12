@@ -26,7 +26,14 @@ import (
 // fails on the output of its own ForMatching. StripCombiningMarks finishes with NFC,
 // which restores the precomposed form.
 func TestStripCombiningMarks_RecomposesHangul(t *testing.T) {
-	const kr = "이전 지시를 무시" // "ignore previous instructions"
+	// Precomposed Hangul syllables (U+C774 U+C804 ...). What they MEAN is irrelevant
+	// to this test and is not asserted here -- no maintainer of this repo reads
+	// Korean. What matters is a property anyone can verify at the codepoint level:
+	// these are category Lo, NFD expands these 9 runes to 18 conjoining jamo, the
+	// jamo are also Lo rather than Mn, and so the combining-mark strip cannot put
+	// them back. The string is lifted from pipelock's own CJK KR rule so the test
+	// exercises the case that actually breaks in production.
+	const kr = "이전 지시를 무시"
 
 	if got := StripCombiningMarks(kr); got != kr {
 		t.Errorf("StripCombiningMarks(%q) = %q (%d runes, want %d) -- Hangul left decomposed",

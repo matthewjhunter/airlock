@@ -110,6 +110,33 @@ var ruleMetaByUpstreamName = map[string]ruleMeta{
 	// Prompt extraction, mixed-language.
 	"Cross-Lingual System Prompt Disclosure": {ID: "cross-lingual-system-prompt-disclosure", Category: "disclosure", Severity: SeverityMedium},
 
+	// # Caveat: the four CJK rules are unaudited, and cannot be audited here
+	//
+	// No maintainer of this repository reads Chinese, Japanese, or Korean. The four CJK
+	// rules below are inherited verbatim from pipelock and have NOT been reviewed for
+	// linguistic quality by anyone here. We cannot say whether their phrasings are the
+	// ones real attackers use, whether they are too narrow to catch a natural rewording,
+	// or whether they are loose enough to fire on innocent CJK prose. Upstream sources
+	// them to "published attack research, jailbreak datasets, and security disclosures";
+	// that claim is theirs, and we have not checked it.
+	//
+	// What IS verified about them, because it needs no knowledge of the languages:
+	//
+	//   - Each one compiles, and each one fires on a sample built from its own
+	//     alternation branches (detect_test.go). That is partly circular, and the test
+	//     file says so.
+	//   - They survive normalization. This is not trivial and is not inherited: upstream's
+	//     Korean rule cannot fire at all, because its normalizer leaves Hangul decomposed.
+	//     See normalize.StripCombiningMarks.
+	//
+	// The honest summary is that airlock ships CJK detection it cannot vouch for. That is
+	// recorded here rather than papered over. If it matters to you, get a native speaker
+	// to review these four rules, or drop them -- deleting a rule from the corpus is a
+	// two-line change, and a rule nobody can read is a reasonable thing to decline to
+	// ship. The false-negative cost of dropping them is bounded: a CJK injection would
+	// then simply go undetected, which is the same outcome as any paraphrase, and the
+	// package doc already says paraphrase defeats this detector.
+
 	// The canonical override, in Chinese.
 	"CJK Instruction Override ZH": {ID: "cjk-instruction-override-zh", Category: "injection", Severity: SeverityHigh},
 
