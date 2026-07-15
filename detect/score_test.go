@@ -121,7 +121,7 @@ func TestScoreRewardsCorroboration(t *testing.T) {
 	twoHigh := resultOf(SeverityHigh, SeverityHigh).Score()
 	threeHigh := resultOf(SeverityHigh, SeverityHigh, SeverityHigh).Score()
 
-	if !(oneHigh < twoHigh && twoHigh < threeHigh) {
+	if oneHigh >= twoHigh || twoHigh >= threeHigh {
 		t.Errorf("High hits in distinct categories do not corroborate: 1=%d 2=%d 3=%d",
 			oneHigh, twoHigh, threeHigh)
 	}
@@ -204,11 +204,11 @@ func TestScoreAndHighestAgreeOnSingleHits(t *testing.T) {
 	med := resultOf(SeverityMedium)
 	high := resultOf(SeverityHigh)
 
-	if !(low.Score() < med.Score() && med.Score() < high.Score()) {
+	if low.Score() >= med.Score() || med.Score() >= high.Score() {
 		t.Errorf("single-hit scores do not follow the tiers: low=%d medium=%d high=%d",
 			low.Score(), med.Score(), high.Score())
 	}
-	if !(low.Highest() < med.Highest() && med.Highest() < high.Highest()) {
+	if low.Highest() >= med.Highest() || med.Highest() >= high.Highest() {
 		t.Error("Highest() does not follow the tiers")
 	}
 }
