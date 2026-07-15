@@ -11,7 +11,7 @@ on:
 
 jobs:
   ci:
-    uses: infodancer/workflows/.github/workflows/go-ci.yml@v0.2.7
+    uses: infodancer/workflows/.github/workflows/go-ci.yml@v0
     # GitHub-hosted, not the self-hosted homelab pool (the workflow's default):
     # this is a small pure-Go public library with no special build needs, and
     # ubuntu-latest also runs on outside contributors' pull requests.
