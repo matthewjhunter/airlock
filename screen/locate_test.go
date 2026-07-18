@@ -3,7 +3,11 @@
 
 package screen
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 const article = `The council met on Tuesday to debate the new zoning rules.
 
@@ -126,6 +130,48 @@ func TestLocate_EmptyAndAbsent(t *testing.T) {
 	}
 	if _, ok := (Verdict{Evidence: "anything"}).Locate(""); ok {
 		t.Error("located evidence in empty content")
+	}
+}
+
+// TestLocate_TruncatedEvidenceStillVerifies covers the bug where ParseVerdict's
+// truncation marker made Locate reject genuine long quotes as fabricated: the marker is
+// added at parse time and never occurs in the source, so matching it verbatim can never
+// succeed. Locate must retry against the guaranteed-verbatim prefix.
+func TestLocate_TruncatedEvidenceStillVerifies(t *testing.T) {
+	content := strings.Repeat("a", EvidenceMaxRunes+80)
+	v, err := ParseVerdict(fmt.Sprintf(
+		`{"threat":9,"category":"override","evidence":%q,"reason":"x"}`, content))
+	if err != nil {
+		t.Fatalf("ParseVerdict: %v", err)
+	}
+	if !strings.HasSuffix(v.Evidence, "...") {
+		t.Fatalf("evidence was not truncated: %q", v.Evidence)
+	}
+
+	span, ok := v.Locate(content)
+	if !ok {
+		t.Fatal("Locate rejected truncated evidence as fabricated")
+	}
+	if !strings.HasPrefix(content, span.Text(content)) || span.Text(content) == "" {
+		t.Errorf("Span.Text = %q, want a nonempty prefix of the content", span.Text(content))
+	}
+
+	f, err := v.Finding(content)
+	if err != nil {
+		t.Fatalf("a genuine long citation was voided as fabricated: %v", err)
+	}
+	if !f.Verified {
+		t.Errorf("Finding = %+v, want Verified", f)
+	}
+}
+
+// TestLocate_TruncationMarkerDoesNotWeakenFabricationCheck: stripping a trailing "..."
+// must still require the remaining prefix to be a real span of the content. A model
+// that fabricates a quote ending in "..." gains nothing.
+func TestLocate_TruncationMarkerDoesNotWeakenFabricationCheck(t *testing.T) {
+	v := Verdict{Threat: 8, Evidence: "this was never in the article..."}
+	if _, ok := v.Locate(article); ok {
+		t.Error("a fabricated quote with a trailing marker was located")
 	}
 }
 

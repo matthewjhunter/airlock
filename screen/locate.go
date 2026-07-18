@@ -84,12 +84,40 @@ func (s Span) Text(content string) string {
 // habitually normalize what they quote (straightening quotes, collapsing newlines,
 // fixing a homoglyph). A fold match still yields offsets into the ORIGINAL text, so
 // [Span.Text] returns what the source really says, not the model's tidied version.
+//
+// # Truncated evidence
+//
+// [ParseVerdict] and [Verdict.Validate] bound Evidence to [EvidenceMaxRunes], marking
+// a cut with a trailing "...". That marker is never in the source -- it is a display
+// convention Locate adds, not a quote the model made -- so matching it verbatim would
+// make every truncated evidence unverifiable regardless of whether it was genuine. If
+// the full string does not match, Locate retries with the marker stripped, matching
+// only the guaranteed-verbatim prefix. That verifies less text, never different text:
+// a match still has to be a real span of content, so a model that fabricates evidence
+// still fails here.
 func (v Verdict) Locate(content string) (Span, bool) {
 	ev := strings.TrimSpace(v.Evidence)
 	if ev == "" || content == "" {
 		return Span{}, false
 	}
 
+	if span, ok := locateExact(content, ev); ok {
+		return span, true
+	}
+	if prefix, ok := strings.CutSuffix(ev, "..."); ok {
+		prefix = strings.TrimRight(prefix, " ")
+		if prefix != "" {
+			if span, ok := locateExact(content, prefix); ok {
+				return span, true
+			}
+		}
+	}
+	return Span{}, false
+}
+
+// locateExact tries an exact substring match, then a folded one, for a needle that is
+// assumed to be a verbatim (possibly case/whitespace/confusable-tidied) span of content.
+func locateExact(content, ev string) (Span, bool) {
 	// Exact.
 	if i := strings.Index(content, ev); i >= 0 {
 		return Span{Start: i, End: i + len(ev), Exact: true}, true
@@ -102,13 +130,13 @@ func (v Verdict) Locate(content string) (Span, bool) {
 		return Span{}, false
 	}
 
-	j := strings.Index(view, needle)
-	if j < 0 {
+	before, _, found := strings.Cut(view, needle)
+	if !found {
 		return Span{}, false
 	}
 
 	// Byte offset in the view -> rune index in the view -> rune index in the original.
-	loRune := len([]rune(view[:j]))
+	loRune := len([]rune(before))
 	hiRune := loRune + len([]rune(needle))
 	if loRune >= len(at) || hiRune > len(at) || hiRune == 0 {
 		return Span{}, false
