@@ -8,15 +8,22 @@
 // # It does not call a model
 //
 // screen makes no network calls and has no model client, no HTTP client, no
-// timeouts, no retries, and no configuration for any provider. It hands you a
-// prompt string and parses a reply string. What runs in between is the caller's
-// business.
+// timeouts, no retries, and no configuration for any provider. What reaches a model,
+// and how, is the caller's business.
 //
 // That is deliberate, and it is what keeps airlock auditable. The value of [wrap]
 // is that the whole guarantee fits in your head; the moment this library opens a
 // socket it becomes a service client and stops being something you can reason
 // about. Callers already own their model plumbing -- concurrency ceilings, model
-// selection, temperature, prompt overrides -- and they should keep owning it.
+// selection, temperature, circuit breakers -- and they should keep owning it.
+//
+// What screen does own is the procedure. [Screen] takes a [Generator] -- one method,
+// prompt in, reply out, implemented by the caller over whatever transport it has --
+// and runs the whole screen through it: split long content into overlapping windows,
+// render and fence each one, parse each reply, verify each citation against the
+// window that produced it, fail closed on anything unusable, and keep the worst
+// verdict. The pieces it is built from ([Render], [ParseVerdict], [Verdict.Finding])
+// remain exported for callers that need to drive a model some other way.
 //
 // # Why the prompt reads the way it does
 //
@@ -45,6 +52,15 @@
 // prompt as additional "not an injection" rules. A feed reader might exclude
 // clickbait and affiliate links; a code-review bot might exclude commit messages
 // that say "ignore the previous commit".
+//
+// A deployment that needs different detection guidance altogether can replace it
+// with [Options.Criteria]. The prompt is two parts, and only one of them is
+// replaceable. The frame is fixed: the question being asked, the fence and what it
+// means, the evidence requirement, the scoring scale, and the JSON the model must
+// answer in. Those are the contract [ParseVerdict] and [Verdict.Finding] enforce, so
+// no override can change them. The criteria -- the decisive test, what to report,
+// what not to -- sit inside the frame and are yours to rewrite. [PromptTemplate] and
+// [DefaultCriteria] return the two parts for reading or forking.
 package screen
 
 import (
@@ -58,10 +74,19 @@ import (
 	"github.com/matthewjhunter/airlock/wrap"
 )
 
-//go:embed prompt.txt
-var promptText string
+// frameText is the fixed part of the prompt: the task, the fence, the evidence
+// requirement, the scoring scale, and the output format. It carries a single slot,
+// {{.Criteria}}, for the replaceable detection guidance.
+//
+//go:embed frame.txt
+var frameText string
 
-var promptTmpl = template.Must(template.New("screen").Parse(promptText))
+// criteriaText is the default detection guidance rendered into the frame's slot.
+//
+//go:embed criteria.txt
+var criteriaText string
+
+var promptTmpl = template.Must(template.New("screen").Parse(frameText))
 
 // Options tunes the screening prompt.
 type Options struct {
@@ -74,6 +99,32 @@ type Options struct {
 	// headlines and affiliate links", not "Please do not flag clickbait because we
 	// have found that it is usually harmless."
 	Exclusions []string
+
+	// Criteria replaces the default detection guidance: the decisive test, the list
+	// of what to report, and the list of what not to. Empty (or whitespace-only)
+	// means the default, [DefaultCriteria].
+	//
+	// Only the criteria are replaced. The frame around them -- the question, the
+	// fence, the evidence requirement, the scoring scale, and the JSON output format
+	// -- is fixed, because [ParseVerdict] and [Verdict.Finding] depend on it. Write
+	// criteria that fit that frame: guidance for deciding whether text addresses an
+	// AI, not a new task or a new output shape.
+	//
+	// Criteria are inserted as plain text, not executed as a template, and are
+	// neutralized like [Options.Exclusions]. They cannot reference or learn the
+	// fence nonce, and do not need to: the frame explains the fence.
+	Criteria string
+
+	// ChunkRunes is the largest span, in runes, that [Screen] sends to the model in
+	// one call. Longer content is split into overlapping windows. Zero means
+	// [DefaultChunkRunes]. Size it to the screening model's context window, leaving
+	// room for the frame and the reply. [Render] ignores it.
+	ChunkRunes int
+
+	// ChunkOverlap is how many runes consecutive windows share, so an injection that
+	// straddles a boundary is whole in at least one of them. Zero means a tenth of
+	// the window size. It must be smaller than the window. [Render] ignores it.
+	ChunkOverlap int
 }
 
 // Prompt is a rendered screening prompt and the nonce that fences its content.
@@ -98,14 +149,24 @@ func Render(content string, opts Options) (Prompt, error) {
 		return Prompt{}, fmt.Errorf("screen: %w", err)
 	}
 
+	criteria := strings.TrimSpace(opts.Criteria)
+	if criteria == "" {
+		criteria = DefaultCriteria()
+	}
+
 	var sb strings.Builder
 	err = promptTmpl.Execute(&sb, struct {
 		Nonce      string
 		Content    string
+		Criteria   string
 		Exclusions []string
 	}{
 		Nonce:   nonce,
 		Content: wrap.Neutralize(content),
+		// Criteria are operator-authored and inserted as a value, never parsed as a
+		// template, so they cannot reach the nonce. Neutralized for the same reason
+		// as the exclusions below.
+		Criteria: wrap.Neutralize(criteria),
 		// Exclusions are operator-authored, not attacker-authored, but they are
 		// still interpolated into the trusted region of a prompt. Neutralize them
 		// too: a fence tag pasted into a config file by accident should not be able
@@ -290,6 +351,12 @@ func (v Verdict) Matches() []detect.Match {
 	}}
 }
 
-// Prompt returns the raw screening prompt template, for callers who want to inspect,
-// diff, or fork it. It is the embedded prompt.txt, unrendered.
-func PromptTemplate() string { return promptText }
+// PromptTemplate returns the fixed frame of the screening prompt, unrendered, for
+// callers who want to inspect, diff, or fork it. The criteria are rendered into its
+// {{.Criteria}} slot; see [DefaultCriteria].
+func PromptTemplate() string { return frameText }
+
+// DefaultCriteria returns the default detection guidance: the decisive test, what to
+// report, and what not to. It is what [Options.Criteria] replaces, and the natural
+// starting point for writing a replacement.
+func DefaultCriteria() string { return strings.TrimSpace(criteriaText) }
