@@ -8,15 +8,22 @@
 // # It does not call a model
 //
 // screen makes no network calls and has no model client, no HTTP client, no
-// timeouts, no retries, and no configuration for any provider. It hands you a
-// prompt string and parses a reply string. What runs in between is the caller's
-// business.
+// timeouts, no retries, and no configuration for any provider. What reaches a model,
+// and how, is the caller's business.
 //
 // That is deliberate, and it is what keeps airlock auditable. The value of [wrap]
 // is that the whole guarantee fits in your head; the moment this library opens a
 // socket it becomes a service client and stops being something you can reason
 // about. Callers already own their model plumbing -- concurrency ceilings, model
-// selection, temperature, prompt overrides -- and they should keep owning it.
+// selection, temperature, circuit breakers -- and they should keep owning it.
+//
+// What screen does own is the procedure. [Screen] takes a [Generator] -- one method,
+// prompt in, reply out, implemented by the caller over whatever transport it has --
+// and runs the whole screen through it: split long content into overlapping windows,
+// render and fence each one, parse each reply, verify each citation against the
+// window that produced it, fail closed on anything unusable, and keep the worst
+// verdict. The pieces it is built from ([Render], [ParseVerdict], [Verdict.Finding])
+// remain exported for callers that need to drive a model some other way.
 //
 // # Why the prompt reads the way it does
 //
@@ -107,6 +114,17 @@ type Options struct {
 	// neutralized like [Options.Exclusions]. They cannot reference or learn the
 	// fence nonce, and do not need to: the frame explains the fence.
 	Criteria string
+
+	// ChunkRunes is the largest span, in runes, that [Screen] sends to the model in
+	// one call. Longer content is split into overlapping windows. Zero means
+	// [DefaultChunkRunes]. Size it to the screening model's context window, leaving
+	// room for the frame and the reply. [Render] ignores it.
+	ChunkRunes int
+
+	// ChunkOverlap is how many runes consecutive windows share, so an injection that
+	// straddles a boundary is whole in at least one of them. Zero means a tenth of
+	// the window size. It must be smaller than the window. [Render] ignores it.
+	ChunkOverlap int
 }
 
 // Prompt is a rendered screening prompt and the nonce that fences its content.
