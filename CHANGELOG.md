@@ -7,6 +7,8 @@ version may change the API.
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-21
+
 ### Added
 
 - `screen.Screen` runs the complete screening procedure through a
@@ -42,6 +44,11 @@ version may change the API.
   the fence's meaning in the trusted region before it reads the content; it
   just does so four paragraphs later. Rendered text with default criteria is no
   longer byte-identical to 0.1.1 for that reason.
+
+### Security
+
+- `golang.org/x/text` bumped to v0.39.0. GO-2026-5970 was reachable through
+  `norm.Form.String` in `normalize.ForToolText`.
 
 ## [0.1.1] - 2026-07-18
 
@@ -86,7 +93,8 @@ version may change the API.
 - `unwrap`: recovery of the first balanced JSON value from a model reply.
 - SECURITY.md with private reporting instructions and the threat model.
 
-[Unreleased]: https://github.com/matthewjhunter/airlock/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/matthewjhunter/airlock/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/matthewjhunter/airlock/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/matthewjhunter/airlock/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/matthewjhunter/airlock/compare/v0.0.1...v0.1.0
 [0.0.1]: https://github.com/matthewjhunter/airlock/releases/tag/v0.0.1
