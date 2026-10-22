@@ -18,15 +18,21 @@ import (
 // in the implementation, not here: airlock never opens a socket. Return an error for
 // any failure to get a reply; [Screen] wraps it with %w, so a caller can still test
 // for its own transport errors with [errors.Is].
+//
+// The prompt arrives as a [Prompt], not a string, so the implementation can choose
+// how to send it: [Prompt.Text] as one message, or [Prompt.Instructions] and
+// [Prompt.Input] as a system and a user message so the provider can cache the
+// first. A chat API should do the latter; it is the same bytes in a shape the
+// provider can reuse.
 type Generator interface {
-	Generate(ctx context.Context, prompt string) (string, error)
+	Generate(ctx context.Context, prompt Prompt) (string, error)
 }
 
 // GeneratorFunc adapts an ordinary function to [Generator].
-type GeneratorFunc func(ctx context.Context, prompt string) (string, error)
+type GeneratorFunc func(ctx context.Context, prompt Prompt) (string, error)
 
 // Generate calls f.
-func (f GeneratorFunc) Generate(ctx context.Context, prompt string) (string, error) {
+func (f GeneratorFunc) Generate(ctx context.Context, prompt Prompt) (string, error) {
 	return f(ctx, prompt)
 }
 
@@ -95,7 +101,7 @@ func screenWindow(ctx context.Context, gen Generator, span string, opts Options)
 		return Finding{}, err
 	}
 
-	reply, err := gen.Generate(ctx, p.Text)
+	reply, err := gen.Generate(ctx, p)
 	if err != nil {
 		return Finding{}, fmt.Errorf("generate: %w", err)
 	}

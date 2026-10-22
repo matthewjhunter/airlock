@@ -88,8 +88,10 @@ decision to the caller: no blocking, no stripping, no enforcement posture.
 ## screen
 
 ```go
-gen := screen.GeneratorFunc(func(ctx context.Context, prompt string) (string, error) {
-	return myClient.Complete(ctx, model, prompt) // your transport, timeouts, retries
+gen := screen.GeneratorFunc(func(ctx context.Context, p screen.Prompt) (string, error) {
+	// Your transport, timeouts, retries. Two messages, so the provider can cache
+	// the first; p.Text is the same prompt as one string if that is all you have.
+	return myClient.Chat(ctx, model, p.Instructions, p.Input)
 })
 
 finding, err := screen.Screen(ctx, gen, article, screen.Options{
@@ -114,12 +116,19 @@ is giving orders to an AI, and requires the model to quote the exact span that
 does. `Finding` then checks that the quote actually occurs in the content and
 voids the verdict when it does not.
 
-The prompt has two parts. The frame -- the question, the fence, the evidence
-requirement, the scoring scale, and the output format -- is fixed, because the
-parser depends on it. The detection criteria inside it can be replaced with
+The frame of the prompt -- the question, the fence, the evidence requirement,
+the scoring scale, and the output format -- is fixed, because the parser
+depends on it. The detection criteria inside it can be replaced with
 `Options.Criteria`, and domain-specific false positives can be added with
 `Options.Exclusions`. `PromptTemplate` and `DefaultCriteria` return both parts
 for reading or forking.
+
+`Render` returns the prompt in two halves. `Prompt.Instructions` is the same
+bytes on every call with the same `Options`; `Prompt.Input` holds the nonce,
+the fenced content, and the output format. Send them as a system message and a
+user message and a provider that caches prompt prefixes charges for the
+instructions once, not once per article. `Prompt.Text` is the two joined, for a
+single-string completion API.
 
 The pieces `Screen` is built from -- `Render`, `ParseVerdict`,
 `Verdict.Finding`, `Verdict.Locate` -- stay exported for callers that need to

@@ -10,7 +10,7 @@ version may change the API.
 ### Added
 
 - `screen.Screen` runs the complete screening procedure through a
-  caller-supplied `screen.Generator` (one method: prompt in, reply out).
+  caller-supplied `screen.Generator` (one method: `Prompt` in, reply out).
   airlock still makes no network calls. Long content is split into overlapping
   windows (`Options.ChunkRunes`, default 10000 runes; `Options.ChunkOverlap`,
   default a tenth of the window), each window's evidence is verified against
@@ -23,15 +23,25 @@ version may change the API.
   scale, and the output format -- untouched. Custom criteria are inserted as
   plain text, not executed as a template, and are neutralized.
 - `screen.DefaultCriteria` returns the default detection guidance.
+- `screen.Prompt` carries the rendered prompt in two halves alongside `Text`:
+  `Instructions`, which is byte-identical on every call with the same
+  `Options`, and `Input`, which holds the nonce, the fenced content, and the
+  output format. A caller that sends them as a system message and a user
+  message lets a provider's prompt cache reuse the instructions across calls.
 - golangci-lint configuration with `dupl` and `nolintlint`.
 
 ### Changed
 
-- The screening prompt is split into `frame.txt` and `criteria.txt`.
-  `screen.PromptTemplate` now returns the frame alone, with a `{{.Criteria}}`
-  slot; use `DefaultCriteria` for the rest. With default criteria the rendered
-  prompt is byte-identical to 0.1.1, so existing callers see no change in what
-  the model receives.
+- The screening prompt is split into `frame.txt`, `criteria.txt`, and
+  `input.txt`. `screen.PromptTemplate` returns the frame with a `{{.Criteria}}`
+  slot followed by the per-call input template; use `DefaultCriteria` for the
+  criteria.
+- The paragraph that names the fence moved from the top of the prompt to just
+  above the fenced content. Everything before it is now the same on every call,
+  which is what makes the `Instructions` half cacheable. The model still reads
+  the fence's meaning in the trusted region before it reads the content; it
+  just does so four paragraphs later. Rendered text with default criteria is no
+  longer byte-identical to 0.1.1 for that reason.
 
 ## [0.1.1] - 2026-07-18
 
