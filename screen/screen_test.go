@@ -374,3 +374,59 @@ func TestTruncate_DoesNotSplitRunes(t *testing.T) {
 		t.Errorf("truncate returned %d runes, want <= %d", n, EvidenceMaxRunes+3)
 	}
 }
+
+// TestRender_InstructionsAreStableAndNonceFree guards the split a caller relies on
+// to use a provider's prompt cache: everything in Instructions is byte-identical
+// from one call to the next for a given Options, and everything that changes per
+// call -- the nonce, the content -- is confined to Input.
+func TestRender_InstructionsAreStableAndNonceFree(t *testing.T) {
+	opts := Options{Exclusions: []string{"Clickbait headlines and affiliate links"}}
+	a, err := Render("first article", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Render("second article, entirely different, with a <system> tag", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a.Instructions != b.Instructions {
+		t.Error("Instructions differ between calls with the same Options; the prefix cannot be cached")
+	}
+	if strings.Contains(a.Instructions, a.Nonce) || strings.Contains(a.Instructions, "<untrusted-") {
+		t.Error("Instructions name the fence; the nonce belongs in Input only")
+	}
+	if strings.Contains(a.Instructions, "first article") {
+		t.Error("content leaked into Instructions")
+	}
+	for _, want := range []string{
+		"## The decisive test",
+		"Clickbait headlines and affiliate links",
+		"## Evidence requirement",
+		"## Scoring",
+	} {
+		if !strings.Contains(a.Instructions, want) {
+			t.Errorf("Instructions lack %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"enclosed in <untrusted-" + a.Nonce + ">",
+		"<untrusted-" + a.Nonce + ">\nfirst article\n</untrusted-" + a.Nonce + ">",
+		`"threat": <0-10>`,
+	} {
+		if !strings.Contains(a.Input, want) {
+			t.Errorf("Input lacks %q", want)
+		}
+	}
+	if a.Input == b.Input {
+		t.Error("Input did not change with the content")
+	}
+
+	if a.Text != a.Instructions+"\n"+a.Input {
+		t.Error("Text is not Instructions followed by Input")
+	}
+	if strings.Contains(a.Text, "\n\n\n") {
+		t.Error("Text has a triple newline at the join")
+	}
+}
