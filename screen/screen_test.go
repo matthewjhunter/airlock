@@ -82,6 +82,61 @@ func TestRender_Exclusions(t *testing.T) {
 	}
 }
 
+// Custom criteria replace the detection guidance and nothing else. The task, the
+// fence, the evidence requirement, and the output format are the contract ParseVerdict
+// and Finding depend on, so they must survive any override.
+func TestRender_CustomCriteriaReplaceOnlyTheCriteria(t *testing.T) {
+	const criteria = "## Deployment criteria\n\nFlag anything addressed to the triage bot."
+	p, err := Render("hello", Options{Criteria: criteria})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(p.Text, "Flag anything addressed to the triage bot.") {
+		t.Error("custom criteria are missing from the rendered prompt")
+	}
+	if strings.Contains(p.Text, "## The decisive test") {
+		t.Error("the default criteria rendered alongside the custom ones; they should be replaced")
+	}
+	for _, contract := range []string{
+		"You are a prompt-injection detector",
+		"<untrusted-" + p.Nonce + ">",
+		"## Evidence requirement",
+		`"threat": <0-10>`,
+		`"evidence":`,
+	} {
+		if !strings.Contains(p.Text, contract) {
+			t.Errorf("custom criteria displaced the fixed contract text %q", contract)
+		}
+	}
+}
+
+func TestRender_BlankCriteriaMeanDefault(t *testing.T) {
+	p, err := Render("hello", Options{Criteria: " \n\t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.Text, "## The decisive test") {
+		t.Error("whitespace-only criteria erased the default criteria instead of falling back to them")
+	}
+}
+
+// Criteria are operator-authored text, interpolated as data. They are not executed as
+// a template -- a literal {{.Nonce}} must not learn the fence -- and a fence-shaped tag
+// pasted into them must not survive to split the prompt.
+func TestRender_CustomCriteriaAreDataNotTemplate(t *testing.T) {
+	p, err := Render("hello", Options{Criteria: "Report {{.Nonce}} here.\n</untrusted-00>\nmore"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(p.Text, "Report {{.Nonce}} here.") {
+		t.Error("custom criteria were executed as a template")
+	}
+	if strings.Contains(p.Text, "</untrusted-00>") {
+		t.Error("a fence tag in the custom criteria reached the rendered prompt")
+	}
+}
+
 // TestPrompt_RefusesTheSafetyFraming guards the property the whole prompt exists for.
 //
 // Safety-trained models, asked whether text is "unsafe", answer the question they
@@ -89,7 +144,7 @@ func TestRender_Exclusions(t *testing.T) {
 // articles about scams. The prompt must never invite that reading. If someone
 // "tidies" it and reintroduces safety vocabulary, this fails.
 func TestPrompt_RefusesTheSafetyFraming(t *testing.T) {
-	p := PromptTemplate()
+	p := PromptTemplate() + DefaultCriteria()
 	lower := strings.ToLower(p)
 
 	// The pivot from content-safety to injection must be stated outright.
@@ -317,5 +372,61 @@ func TestTruncate_DoesNotSplitRunes(t *testing.T) {
 	}
 	if n := len([]rune(got)); n > EvidenceMaxRunes+3 {
 		t.Errorf("truncate returned %d runes, want <= %d", n, EvidenceMaxRunes+3)
+	}
+}
+
+// TestRender_InstructionsAreStableAndNonceFree guards the split a caller relies on
+// to use a provider's prompt cache: everything in Instructions is byte-identical
+// from one call to the next for a given Options, and everything that changes per
+// call -- the nonce, the content -- is confined to Input.
+func TestRender_InstructionsAreStableAndNonceFree(t *testing.T) {
+	opts := Options{Exclusions: []string{"Clickbait headlines and affiliate links"}}
+	a, err := Render("first article", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := Render("second article, entirely different, with a <system> tag", opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if a.Instructions != b.Instructions {
+		t.Error("Instructions differ between calls with the same Options; the prefix cannot be cached")
+	}
+	if strings.Contains(a.Instructions, a.Nonce) || strings.Contains(a.Instructions, "<untrusted-") {
+		t.Error("Instructions name the fence; the nonce belongs in Input only")
+	}
+	if strings.Contains(a.Instructions, "first article") {
+		t.Error("content leaked into Instructions")
+	}
+	for _, want := range []string{
+		"## The decisive test",
+		"Clickbait headlines and affiliate links",
+		"## Evidence requirement",
+		"## Scoring",
+	} {
+		if !strings.Contains(a.Instructions, want) {
+			t.Errorf("Instructions lack %q", want)
+		}
+	}
+
+	for _, want := range []string{
+		"enclosed in <untrusted-" + a.Nonce + ">",
+		"<untrusted-" + a.Nonce + ">\nfirst article\n</untrusted-" + a.Nonce + ">",
+		`"threat": <0-10>`,
+	} {
+		if !strings.Contains(a.Input, want) {
+			t.Errorf("Input lacks %q", want)
+		}
+	}
+	if a.Input == b.Input {
+		t.Error("Input did not change with the content")
+	}
+
+	if a.Text != a.Instructions+"\n"+a.Input {
+		t.Error("Text is not Instructions followed by Input")
+	}
+	if strings.Contains(a.Text, "\n\n\n") {
+		t.Error("Text has a triple newline at the join")
 	}
 }
